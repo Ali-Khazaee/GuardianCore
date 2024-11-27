@@ -224,7 +224,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	if isfb && firstLen < 18 {
 		err = errors.New("fallback directly")
 	} else {
-		request, requestAddons, isfb, err = encoding.DecodeRequestHeader(isfb, first, reader, h.validator)
+		request, requestAddons, isfb, err = encoding.DecodeRequestHeader(isfb, first, reader, h.validator, connection.RemoteAddr())
 	}
 
 	if err != nil {

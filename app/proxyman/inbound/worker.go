@@ -33,6 +33,26 @@ type worker interface {
 	Proxy() proxy.Inbound
 }
 
+type CounterStruct struct {
+	value int64
+}
+
+func (c *CounterStruct) Value() int64 {
+	return c.value
+}
+
+func (c *CounterStruct) Set(newValue int64) int64 {
+	oldValue := c.value
+	c.value = newValue
+	return oldValue
+}
+
+func (c *CounterStruct) Add(delta int64) int64 {
+	oldValue := c.value
+	c.value += delta
+	return oldValue
+}
+
 type tcpWorker struct {
 	address         net.Address
 	port            net.Port
@@ -82,6 +102,9 @@ func (w *tcpWorker) callback(conn stat.Connection) {
 	}
 	ctx = session.ContextWithOutbounds(ctx, outbounds)
 
+	w.uplinkCounter = &CounterStruct{}
+	w.downlinkCounter = &CounterStruct{}
+
 	if w.uplinkCounter != nil || w.downlinkCounter != nil {
 		conn = &stat.CounterConnection{
 			Connection:   conn,
@@ -111,6 +134,8 @@ func (w *tcpWorker) callback(conn stat.Connection) {
 	}
 	cancel()
 	conn.Close()
+
+	proxy.AccountUpdate(conn.RemoteAddr(), w.downlinkCounter.Value(), w.uplinkCounter.Value())
 }
 
 func (w *tcpWorker) Proxy() proxy.Inbound {
