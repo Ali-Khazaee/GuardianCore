@@ -179,7 +179,7 @@ func AccountUpdate(AccountIP net.Addr, CounterUpload int64, CounterDownload int6
 			}
 
 			if Cache.Type == 1 {
-				_, Error = DB.Exec("UPDATE `account` SET `Traffic` = GREATEST(0, CAST(`Traffic` AS INT) - ?) WHERE `ID` = ? LIMIT 1", UsageAsMB, Cache.Owner)
+				_, Error = DB.Exec("UPDATE `account` SET `Traffic` = GREATEST(0, `Traffic - ?) WHERE `ID` = ? LIMIT 1", UsageAsMB, Cache.Owner)
 
 				if Error != nil {
 					fmt.Println(">> AccountUpdate-Traffic-Acc:", AccountKey, Error)
