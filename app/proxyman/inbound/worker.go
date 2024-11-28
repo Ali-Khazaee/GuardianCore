@@ -102,16 +102,12 @@ func (w *tcpWorker) callback(conn stat.Connection) {
 	}
 	ctx = session.ContextWithOutbounds(ctx, outbounds)
 
-	w.uplinkCounter = &CounterStruct{}
-	w.downlinkCounter = &CounterStruct{}
-
-	if w.uplinkCounter != nil || w.downlinkCounter != nil {
-		conn = &stat.CounterConnection{
-			Connection:   conn,
-			ReadCounter:  w.uplinkCounter,
-			WriteCounter: w.downlinkCounter,
-		}
+	conn = &stat.CounterConnection{
+		Connection:   conn,
+		ReadCounter:  &CounterStruct{},
+		WriteCounter: &CounterStruct{},
 	}
+
 	ctx = session.ContextWithInbound(ctx, &session.Inbound{
 		Source:  net.DestinationFromAddr(conn.RemoteAddr()),
 		Gateway: net.TCPDestination(w.address, w.port),
@@ -134,8 +130,6 @@ func (w *tcpWorker) callback(conn stat.Connection) {
 	}
 	cancel()
 	conn.Close()
-
-	proxy.AccountUpdate(conn.RemoteAddr(), w.downlinkCounter.Value(), w.uplinkCounter.Value())
 }
 
 func (w *tcpWorker) Proxy() proxy.Inbound {

@@ -216,6 +216,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 
 	var request *protocol.RequestHeader
 	var requestAddons *encoding.Addons
+	var AccountUUID []byte
 	var err error
 
 	napfb := h.fallbacks
@@ -224,7 +225,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	if isfb && firstLen < 18 {
 		err = errors.New("fallback directly")
 	} else {
-		request, requestAddons, isfb, err = encoding.DecodeRequestHeader(isfb, first, reader, h.validator, connection.RemoteAddr())
+		request, requestAddons, isfb, AccountUUID, err = encoding.DecodeRequestHeader(isfb, first, reader, h.validator, connection.RemoteAddr())
 	}
 
 	if err != nil {
@@ -593,10 +594,15 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	}
 
 	if err := task.Run(ctx, task.OnSuccess(postRequest, task.Close(serverWriter)), getResponse); err != nil {
+		proxy.AccountUpdate(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
+
 		common.Interrupt(serverReader)
 		common.Interrupt(serverWriter)
+
 		return errors.New("connection ends").Base(err).AtInfo()
 	}
+
+	proxy.AccountUpdate(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
 
 	return nil
 }
