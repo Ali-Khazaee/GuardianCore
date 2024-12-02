@@ -171,12 +171,10 @@ func AccountUpdate(AccountUUID []byte, AccountIP net.Addr, CounterUpload int64, 
 			}
 
 			if Cache.Type == 1 {
-				_, Error = DB.Exec("UPDATE `account` SET `Traffic` = GREATEST(0, `Traffic` - ?) WHERE `ID` = ? LIMIT 1", UsageAsMB, Cache.Owner)
+				_, Error = DB.Exec("UPDATE `account` SET `Traffic` = GREATEST(0, CAST(`Traffic` AS SIGNED) - ?) WHERE `ID` = ? LIMIT 1", UsageAsMB, Cache.Owner)
 
 				if Error != nil {
 					fmt.Println(">> AccountUpdate-Traffic-Acc:", AccountKey.String(), Error)
-
-					return
 				}
 			}
 
