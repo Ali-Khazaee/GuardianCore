@@ -23,6 +23,16 @@ enum DomainStrategy {
   FORCE_IP64 = 10;
 }
 
+enum AddressPortStrategy {
+  None = 0;
+  SrvPortOnly = 1;
+  SrvAddressOnly = 2;
+  SrvPortAndAddress = 3;
+  TxtPortOnly = 4;
+  TxtAddressOnly = 5;
+  TxtPortAndAddress = 6;
+}
+
 message TransportConfig {
   // Transport protocol name.
   string protocol_name = 3;
@@ -55,10 +65,11 @@ message ProxyConfig {
 }
 
 message CustomSockopt {
-  string level = 1;
-  string opt = 2;
-  string value = 3;
-  string type = 4;
+  string network = 1;
+  string level = 2;
+  string opt = 3;
+  string value = 4;
+  string type = 5;
 }
 
 // SocketConfig is options to be applied on network sockets.
@@ -103,7 +114,7 @@ message SocketConfig {
   
   string interface = 13;
 
-  bool   v6only = 14;
+  bool v6only = 14;
 
   int32 tcp_window_clamp = 15;
 
@@ -111,9 +122,11 @@ message SocketConfig {
 
   int32 tcp_max_seg = 17;
 
-  bool tcp_no_delay = 18;
+  bool penetrate = 18;
 
   bool tcp_mptcp = 19;
 
   repeated CustomSockopt customSockopt = 20;
+
+  AddressPortStrategy address_port_strategy = 21;
 }

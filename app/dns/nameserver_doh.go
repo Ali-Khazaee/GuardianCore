@@ -3,15 +3,18 @@ package dns
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	utls "github.com/refraction-networking/utls"
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/crypto"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/net"
@@ -24,117 +27,100 @@ import (
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/transport/internet"
 	"golang.org/x/net/dns/dnsmessage"
+	"golang.org/x/net/http2"
 )
 
 // DoHNameServer implemented DNS over HTTPS (RFC8484) Wire Format,
 // which is compatible with traditional dns over udp(RFC1035),
 // thus most of the DOH implementation is copied from udpns.go
 type DoHNameServer struct {
-	dispatcher routing.Dispatcher
 	sync.RWMutex
 	ips           map[string]*record
 	pub           *pubsub.Service
 	cleanup       *task.Periodic
-	reqID         uint32
 	httpClient    *http.Client
 	dohURL        string
 	name          string
 	queryStrategy QueryStrategy
 }
 
-// NewDoHNameServer creates DOH server object for remote resolving.
-func NewDoHNameServer(url *url.URL, dispatcher routing.Dispatcher, queryStrategy QueryStrategy) (*DoHNameServer, error) {
-	errors.LogInfo(context.Background(), "DNS: created Remote DOH client for ", url.String())
-	s := baseDOHNameServer(url, "DOH", queryStrategy)
-
-	s.dispatcher = dispatcher
-	tr := &http.Transport{
-		MaxIdleConns:        30,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: 30 * time.Second,
-		ForceAttemptHTTP2:   true,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			dest, err := net.ParseDestination(network + ":" + addr)
-			if err != nil {
-				return nil, err
-			}
-			link, err := s.dispatcher.Dispatch(toDnsContext(ctx, s.dohURL), dest)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-
-			}
-			if err != nil {
-				return nil, err
-			}
-
-			cc := common.ChainedClosable{}
-			if cw, ok := link.Writer.(common.Closable); ok {
-				cc = append(cc, cw)
-			}
-			if cr, ok := link.Reader.(common.Closable); ok {
-				cc = append(cc, cr)
-			}
-			return cnc.NewConnection(
-				cnc.ConnectionInputMulti(link.Writer),
-				cnc.ConnectionOutputMulti(link.Reader),
-				cnc.ConnectionOnClose(cc),
-			), nil
-		},
-	}
-	s.httpClient = &http.Client{
-		Timeout:   time.Second * 180,
-		Transport: tr,
-	}
-
-	return s, nil
-}
-
-// NewDoHLocalNameServer creates DOH client object for local resolving
-func NewDoHLocalNameServer(url *url.URL, queryStrategy QueryStrategy) *DoHNameServer {
+// NewDoHNameServer creates DOH/DOHL client object for remote/local resolving.
+func NewDoHNameServer(url *url.URL, queryStrategy QueryStrategy, dispatcher routing.Dispatcher, h2c bool) *DoHNameServer {
 	url.Scheme = "https"
-	s := baseDOHNameServer(url, "DOHL", queryStrategy)
-	tr := &http.Transport{
-		IdleConnTimeout:   90 * time.Second,
-		ForceAttemptHTTP2: true,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			dest, err := net.ParseDestination(network + ":" + addr)
-			if err != nil {
-				return nil, err
-			}
-			conn, err := internet.DialSystem(ctx, dest, nil)
-			log.Record(&log.AccessMessage{
-				From:   "DNS",
-				To:     s.dohURL,
-				Status: log.AccessAccepted,
-				Detour: "local",
-			})
-			if err != nil {
-				return nil, err
-			}
-			return conn, nil
-		},
+	mode := "DOH"
+	if dispatcher == nil {
+		mode = "DOHL"
 	}
-	s.httpClient = &http.Client{
-		Timeout:   time.Second * 180,
-		Transport: tr,
-	}
-	errors.LogInfo(context.Background(), "DNS: created Local DOH client for ", url.String())
-	return s
-}
-
-func baseDOHNameServer(url *url.URL, prefix string, queryStrategy QueryStrategy) *DoHNameServer {
+	errors.LogInfo(context.Background(), "DNS: created ", mode, " client for ", url.String(), ", with h2c ", h2c)
 	s := &DoHNameServer{
 		ips:           make(map[string]*record),
 		pub:           pubsub.NewService(),
-		name:          prefix + "//" + url.Host,
+		name:          mode + "//" + url.Host,
 		dohURL:        url.String(),
 		queryStrategy: queryStrategy,
 	}
 	s.cleanup = &task.Periodic{
 		Interval: time.Minute,
 		Execute:  s.Cleanup,
+	}
+	s.httpClient = &http.Client{
+		Transport: &http2.Transport{
+			IdleConnTimeout: net.ConnIdleTimeout,
+			ReadIdleTimeout: net.ChromeH2KeepAlivePeriod,
+			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+				dest, err := net.ParseDestination(network + ":" + addr)
+				if err != nil {
+					return nil, err
+				}
+				var conn net.Conn
+				if dispatcher != nil {
+					dnsCtx := toDnsContext(ctx, s.dohURL)
+					if h2c {
+						dnsCtx = session.ContextWithMitmAlpn11(dnsCtx, false) // for insurance
+						dnsCtx = session.ContextWithMitmServerName(dnsCtx, url.Hostname())
+					}
+					link, err := dispatcher.Dispatch(dnsCtx, dest)
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					default:
+					}
+					if err != nil {
+						return nil, err
+					}
+					cc := common.ChainedClosable{}
+					if cw, ok := link.Writer.(common.Closable); ok {
+						cc = append(cc, cw)
+					}
+					if cr, ok := link.Reader.(common.Closable); ok {
+						cc = append(cc, cr)
+					}
+					conn = cnc.NewConnection(
+						cnc.ConnectionInputMulti(link.Writer),
+						cnc.ConnectionOutputMulti(link.Reader),
+						cnc.ConnectionOnClose(cc),
+					)
+				} else {
+					log.Record(&log.AccessMessage{
+						From:   "DNS",
+						To:     s.dohURL,
+						Status: log.AccessAccepted,
+						Detour: "local",
+					})
+					conn, err = internet.DialSystem(ctx, dest, nil)
+					if err != nil {
+						return nil, err
+					}
+				}
+				if !h2c {
+					conn = utls.UClient(conn, &utls.Config{ServerName: url.Hostname()}, utls.HelloChrome_Auto)
+					if err := conn.(*utls.UConn).HandshakeContext(ctx); err != nil {
+						return nil, err
+					}
+				}
+				return conn, nil
+			},
+		},
 	}
 	return s
 }
@@ -222,7 +208,7 @@ func (s *DoHNameServer) updateIP(req *dnsRequest, ipRec *IPRecord) {
 }
 
 func (s *DoHNameServer) newReqID() uint16 {
-	return uint16(atomic.AddUint32(&s.reqID, 1))
+	return 0
 }
 
 func (s *DoHNameServer) sendQuery(ctx context.Context, domain string, clientIP net.IP, option dns_feature.IPOption) {
@@ -233,7 +219,9 @@ func (s *DoHNameServer) sendQuery(ctx context.Context, domain string, clientIP n
 		return
 	}
 
-	reqs := buildReqMsgs(domain, option, s.newReqID, genEDNS0Options(clientIP))
+	// As we don't want our traffic pattern looks like DoH, we use Random-Length Padding instead of Block-Length Padding recommended in RFC 8467
+	// Although DoH server like 1.1.1.1 will pad the response to Block-Length 468, at least it is better than no padding for response at all
+	reqs := buildReqMsgs(domain, option, s.newReqID, genEDNS0Options(clientIP, int(crypto.RandBetween(100, 300))))
 
 	var deadline time.Time
 	if d, ok := ctx.Deadline(); ok {
@@ -295,6 +283,8 @@ func (s *DoHNameServer) dohHTTPSContext(ctx context.Context, b []byte) ([]byte, 
 	req.Header.Add("Accept", "application/dns-message")
 	req.Header.Add("Content-Type", "application/dns-message")
 
+	req.Header.Set("X-Padding", strings.Repeat("X", int(crypto.RandBetween(100, 1000))))
+
 	hc := s.httpClient
 
 	resp, err := hc.Do(req.WithContext(ctx))
@@ -311,64 +301,66 @@ func (s *DoHNameServer) dohHTTPSContext(ctx context.Context, b []byte) ([]byte, 
 	return io.ReadAll(resp.Body)
 }
 
-func (s *DoHNameServer) findIPsForDomain(domain string, option dns_feature.IPOption) ([]net.IP, error) {
+func (s *DoHNameServer) findIPsForDomain(domain string, option dns_feature.IPOption) ([]net.IP, uint32, error) {
 	s.RLock()
 	record, found := s.ips[domain]
 	s.RUnlock()
 
 	if !found {
-		return nil, errRecordNotFound
+		return nil, 0, errRecordNotFound
 	}
 
 	var err4 error
 	var err6 error
 	var ips []net.Address
 	var ip6 []net.Address
+	var ttl uint32
 
 	if option.IPv4Enable {
-		ips, err4 = record.A.getIPs()
+		ips, ttl, err4 = record.A.getIPs()
 	}
 
 	if option.IPv6Enable {
-		ip6, err6 = record.AAAA.getIPs()
+		ip6, ttl, err6 = record.AAAA.getIPs()
 		ips = append(ips, ip6...)
 	}
 
 	if len(ips) > 0 {
-		return toNetIP(ips)
+		netips, err := toNetIP(ips)
+		return netips, ttl, err
 	}
 
 	if err4 != nil {
-		return nil, err4
+		return nil, 0, err4
 	}
 
 	if err6 != nil {
-		return nil, err6
+		return nil, 0, err6
 	}
 
 	if (option.IPv4Enable && record.A != nil) || (option.IPv6Enable && record.AAAA != nil) {
-		return nil, dns_feature.ErrEmptyResponse
+		return nil, 0, dns_feature.ErrEmptyResponse
 	}
 
-	return nil, errRecordNotFound
+	return nil, 0, errRecordNotFound
 }
 
 // QueryIP implements Server.
-func (s *DoHNameServer) QueryIP(ctx context.Context, domain string, clientIP net.IP, option dns_feature.IPOption, disableCache bool) ([]net.IP, error) { // nolint: dupl
+func (s *DoHNameServer) QueryIP(ctx context.Context, domain string, clientIP net.IP, option dns_feature.IPOption, disableCache bool) ([]net.IP, uint32, error) { // nolint: dupl
 	fqdn := Fqdn(domain)
 	option = ResolveIpOptionOverride(s.queryStrategy, option)
 	if !option.IPv4Enable && !option.IPv6Enable {
-		return nil, dns_feature.ErrEmptyResponse
+		return nil, 0, dns_feature.ErrEmptyResponse
 	}
 
 	if disableCache {
 		errors.LogDebug(ctx, "DNS cache is disabled. Querying IP for ", domain, " at ", s.name)
 	} else {
-		ips, err := s.findIPsForDomain(fqdn, option)
-		if err == nil || err == dns_feature.ErrEmptyResponse {
+		ips, ttl, err := s.findIPsForDomain(fqdn, option)
+		if err == nil || err == dns_feature.ErrEmptyResponse || dns_feature.RCodeFromError(err) == 3 {
 			errors.LogDebugInner(ctx, err, s.name, " cache HIT ", domain, " -> ", ips)
 			log.Record(&log.DNSLog{Server: s.name, Domain: domain, Result: ips, Status: log.DNSCacheHit, Elapsed: 0, Error: err})
-			return ips, err
+			return ips, ttl, err
 		}
 	}
 
@@ -402,15 +394,15 @@ func (s *DoHNameServer) QueryIP(ctx context.Context, domain string, clientIP net
 	start := time.Now()
 
 	for {
-		ips, err := s.findIPsForDomain(fqdn, option)
+		ips, ttl, err := s.findIPsForDomain(fqdn, option)
 		if err != errRecordNotFound {
 			log.Record(&log.DNSLog{Server: s.name, Domain: domain, Result: ips, Status: log.DNSQueried, Elapsed: time.Since(start), Error: err})
-			return ips, err
+			return ips, ttl, err
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-done:
 		}
 	}

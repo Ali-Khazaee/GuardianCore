@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"sync"
 	"syscall"
 
 	"golang.zx2c4.com/wireguard/tun"
@@ -33,6 +34,7 @@ type netTun struct {
 	incomingPacket chan *buffer.View
 	mtu            int
 	hasV4, hasV6   bool
+	closeOnce      sync.Once
 }
 
 type Net netTun
@@ -157,7 +159,7 @@ func (tun *netTun) Write(buf [][]byte, offset int) (int, error) {
 // WriteNotify implements channel.Notification
 func (tun *netTun) WriteNotify() {
 	pkt := tun.ep.Read()
-	if pkt.IsNil() {
+	if pkt == nil {
 		return
 	}
 
@@ -174,18 +176,15 @@ func (tun *netTun) Flush() error {
 
 // Close implements tun.Device
 func (tun *netTun) Close() error {
-	tun.stack.RemoveNIC(1)
+	tun.closeOnce.Do(func() {
+		tun.stack.RemoveNIC(1)
 
-	if tun.events != nil {
 		close(tun.events)
-	}
 
-	tun.ep.Close()
+		tun.ep.Close()
 
-	if tun.incomingPacket != nil {
 		close(tun.incomingPacket)
-	}
-
+	})
 	return nil
 }
 

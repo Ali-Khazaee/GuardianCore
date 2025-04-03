@@ -23,6 +23,8 @@ const (
 	timeoutOnlyKey            ctx.SessionKey = 8
 	allowedNetworkKey         ctx.SessionKey = 9
 	handlerSessionKey         ctx.SessionKey = 10
+	mitmAlpn11Key             ctx.SessionKey = 11
+	mitmServerNameKey         ctx.SessionKey = 12
 )
 
 func ContextWithInbound(ctx context.Context, inbound *Inbound) context.Context {
@@ -40,7 +42,7 @@ func ContextWithOutbounds(ctx context.Context, outbounds []*Outbound) context.Co
 	return context.WithValue(ctx, outboundSessionKey, outbounds)
 }
 
-func ContextCloneOutbounds(ctx context.Context) context.Context {
+func ContextCloneOutboundsAndContent(ctx context.Context) context.Context {
 	outbounds := OutboundsFromContext(ctx)
 	newOutbounds := make([]*Outbound, len(outbounds))
 	for i, ob := range outbounds {
@@ -53,7 +55,15 @@ func ContextCloneOutbounds(ctx context.Context) context.Context {
 		newOutbounds[i] = &v
 	}
 
-	return ContextWithOutbounds(ctx, newOutbounds)
+	content := ContentFromContext(ctx)
+	newContent := Content{}
+	if content != nil {
+		newContent = *content
+		if content.Attributes != nil {
+			panic("content.Attributes != nil")
+		}
+	}
+	return ContextWithContent(ContextWithOutbounds(ctx, newOutbounds), &newContent)
 }
 
 func OutboundsFromContext(ctx context.Context) []*Outbound {
@@ -161,4 +171,26 @@ func AllowedNetworkFromContext(ctx context.Context) net.Network {
 		return val
 	}
 	return net.Network_Unknown
+}
+
+func ContextWithMitmAlpn11(ctx context.Context, alpn11 bool) context.Context {
+	return context.WithValue(ctx, mitmAlpn11Key, alpn11)
+}
+
+func MitmAlpn11FromContext(ctx context.Context) bool {
+	if val, ok := ctx.Value(mitmAlpn11Key).(bool); ok {
+		return val
+	}
+	return false
+}
+
+func ContextWithMitmServerName(ctx context.Context, serverName string) context.Context {
+	return context.WithValue(ctx, mitmServerNameKey, serverName)
+}
+
+func MitmServerNameFromContext(ctx context.Context) string {
+	if val, ok := ctx.Value(mitmServerNameKey).(string); ok {
+		return val
+	}
+	return ""
 }

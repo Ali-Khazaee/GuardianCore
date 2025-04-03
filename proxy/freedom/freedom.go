@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"io"
-	"math/big"
 	"time"
 
 	"github.com/pires/go-proxyproto"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/crypto"
 	"github.com/xtls/xray-core/common/dice"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/net"
@@ -71,13 +71,13 @@ func (h *Handler) policy() policy.Session {
 }
 
 func (h *Handler) resolveIP(ctx context.Context, domain string, localAddr net.Address) net.Address {
-	ips, err := h.dns.LookupIP(domain, dns.IPOption{
+	ips, _, err := h.dns.LookupIP(domain, dns.IPOption{
 		IPv4Enable: (localAddr == nil || localAddr.Family().IsIPv4()) && h.config.preferIP4(),
 		IPv6Enable: (localAddr == nil || localAddr.Family().IsIPv6()) && h.config.preferIP6(),
 	})
 	{ // Resolve fallback
 		if (len(ips) == 0 || err != nil) && h.config.hasFallback() && localAddr == nil {
-			ips, err = h.dns.LookupIP(domain, dns.IPOption{
+			ips, _, err = h.dns.LookupIP(domain, dns.IPOption{
 				IPv4Enable: h.config.fallbackIP4(),
 				IPv6Enable: h.config.fallbackIP6(),
 			})
@@ -266,6 +266,9 @@ func isTLSConn(conn stat.Connection) bool {
 		if _, ok := conn.(*tls.Conn); ok {
 			return true
 		}
+		if _, ok := conn.(*tls.UConn); ok {
+			return true
+		}
 	}
 	return false
 }
@@ -407,11 +410,11 @@ func (w *NoisePacketWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 		var err error
 		for _, n := range w.noises {
 			//User input string or base64 encoded string
-			if n.StrNoise != nil {
-				noise = n.StrNoise
+			if n.Packet != nil {
+				noise = n.Packet
 			} else {
 				//Random noise
-				noise, err = GenerateRandomBytes(randBetween(int64(n.LengthMin),
+				noise, err = GenerateRandomBytes(crypto.RandBetween(int64(n.LengthMin),
 					int64(n.LengthMax)))
 			}
 			if err != nil {
@@ -419,8 +422,8 @@ func (w *NoisePacketWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 			}
 			w.Writer.WriteMultiBuffer(buf.MultiBuffer{buf.FromBytes(noise)})
 
-			if n.DelayMin != 0 {
-				time.Sleep(time.Duration(randBetween(int64(n.DelayMin), int64(n.DelayMax))) * time.Millisecond)
+			if n.DelayMin != 0 || n.DelayMax != 0 {
+				time.Sleep(time.Duration(crypto.RandBetween(int64(n.DelayMin), int64(n.DelayMax))) * time.Millisecond)
 			}
 		}
 
@@ -449,7 +452,7 @@ func (f *FragmentWriter) Write(b []byte) (int, error) {
 		buf := make([]byte, 1024)
 		var hello []byte
 		for from := 0; ; {
-			to := from + int(randBetween(int64(f.fragment.LengthMin), int64(f.fragment.LengthMax)))
+			to := from + int(crypto.RandBetween(int64(f.fragment.LengthMin), int64(f.fragment.LengthMax)))
 			if to > len(data) {
 				to = len(data)
 			}
@@ -463,7 +466,7 @@ func (f *FragmentWriter) Write(b []byte) (int, error) {
 				hello = append(hello, buf[:5+l]...)
 			} else {
 				_, err := f.writer.Write(buf[:5+l])
-				time.Sleep(time.Duration(randBetween(int64(f.fragment.IntervalMin), int64(f.fragment.IntervalMax))) * time.Millisecond)
+				time.Sleep(time.Duration(crypto.RandBetween(int64(f.fragment.IntervalMin), int64(f.fragment.IntervalMax))) * time.Millisecond)
 				if err != nil {
 					return 0, err
 				}
@@ -490,13 +493,13 @@ func (f *FragmentWriter) Write(b []byte) (int, error) {
 		return f.writer.Write(b)
 	}
 	for from := 0; ; {
-		to := from + int(randBetween(int64(f.fragment.LengthMin), int64(f.fragment.LengthMax)))
+		to := from + int(crypto.RandBetween(int64(f.fragment.LengthMin), int64(f.fragment.LengthMax)))
 		if to > len(b) {
 			to = len(b)
 		}
 		n, err := f.writer.Write(b[from:to])
 		from += n
-		time.Sleep(time.Duration(randBetween(int64(f.fragment.IntervalMin), int64(f.fragment.IntervalMax))) * time.Millisecond)
+		time.Sleep(time.Duration(crypto.RandBetween(int64(f.fragment.IntervalMin), int64(f.fragment.IntervalMax))) * time.Millisecond)
 		if err != nil {
 			return from, err
 		}
@@ -506,14 +509,6 @@ func (f *FragmentWriter) Write(b []byte) (int, error) {
 	}
 }
 
-// stolen from github.com/xtls/xray-core/transport/internet/reality
-func randBetween(left int64, right int64) int64 {
-	if left == right {
-		return left
-	}
-	bigInt, _ := rand.Int(rand.Reader, big.NewInt(right-left))
-	return left + bigInt.Int64()
-}
 func GenerateRandomBytes(n int64) ([]byte, error) {
 	b := make([]byte, n)
 	_, err := rand.Read(b)

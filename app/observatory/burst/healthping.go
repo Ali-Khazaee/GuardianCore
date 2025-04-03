@@ -9,6 +9,7 @@ import (
 
 	"github.com/xtls/xray-core/common/dice"
 	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/features/routing"
 )
 
 // HealthPingSettings holds settings for health Checker
@@ -23,6 +24,7 @@ type HealthPingSettings struct {
 // HealthPing is the health checker for balancers
 type HealthPing struct {
 	ctx         context.Context
+	dispatcher  routing.Dispatcher
 	access      sync.Mutex
 	ticker      *time.Ticker
 	tickerClose chan struct{}
@@ -32,7 +34,7 @@ type HealthPing struct {
 }
 
 // NewHealthPing creates a new HealthPing with settings
-func NewHealthPing(ctx context.Context, config *HealthPingConfig) *HealthPing {
+func NewHealthPing(ctx context.Context, dispatcher routing.Dispatcher, config *HealthPingConfig) *HealthPing {
 	settings := &HealthPingSettings{}
 	if config != nil {
 		settings = &HealthPingSettings{
@@ -64,9 +66,10 @@ func NewHealthPing(ctx context.Context, config *HealthPingConfig) *HealthPing {
 		settings.Timeout = time.Duration(5) * time.Second
 	}
 	return &HealthPing{
-		ctx:      ctx,
-		Settings: settings,
-		Results:  nil,
+		ctx:        ctx,
+		dispatcher: dispatcher,
+		Settings:   settings,
+		Results:    nil,
 	}
 }
 
@@ -149,6 +152,7 @@ func (h *HealthPing) doCheck(tags []string, duration time.Duration, rounds int) 
 		handler := tag
 		client := newPingClient(
 			h.ctx,
+			h.dispatcher,
 			h.Settings.Destination,
 			h.Settings.Timeout,
 			handler,

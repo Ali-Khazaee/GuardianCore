@@ -2,6 +2,7 @@ package dokodemo
 
 import (
 	"context"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/xtls/xray-core/common"
@@ -17,6 +18,7 @@ import (
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/transport/internet/stat"
+	"github.com/xtls/xray-core/transport/internet/tls"
 )
 
 func init() {
@@ -62,10 +64,6 @@ func (d *DokodemoDoor) policy() policy.Session {
 	return p
 }
 
-type hasHandshakeAddressContext interface {
-	HandshakeAddressContext(ctx context.Context) net.Address
-}
-
 // Process implements proxy.Inbound.
 func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn stat.Connection, dispatcher routing.Dispatcher) error {
 	errors.LogDebug(ctx, "processing connection from: ", conn.RemoteAddr())
@@ -85,11 +83,14 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 				destinationOverridden = true
 			}
 		}
-		if handshake, ok := conn.(hasHandshakeAddressContext); ok && !destinationOverridden {
-			addr := handshake.HandshakeAddressContext(ctx)
-			if addr != nil {
-				dest.Address = addr
+		if tlsConn, ok := conn.(tls.Interface); ok && !destinationOverridden {
+			if serverName := tlsConn.HandshakeContextServerName(ctx); serverName != "" {
+				dest.Address = net.DomainAddress(serverName)
 				destinationOverridden = true
+				ctx = session.ContextWithMitmServerName(ctx, serverName)
+			}
+			if tlsConn.NegotiatedProtocol() != "h2" {
+				ctx = session.ContextWithMitmAlpn11(ctx, true)
 			}
 		}
 	}
@@ -147,10 +148,6 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 		return nil
 	}
 
-	tproxyRequest := func() error {
-		return nil
-	}
-
 	var writer buf.Writer
 	if network == net.Network_TCP {
 		writer = buf.NewWriter(conn)
@@ -180,7 +177,12 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 				return err
 			}
 			writer = NewPacketWriter(pConn, &dest, mark, back)
-			defer writer.(*PacketWriter).Close()
+			defer func() {
+				runtime.Gosched()
+				common.Interrupt(link.Reader) // maybe duplicated
+				runtime.Gosched()
+				writer.(*PacketWriter).Close() // close fake UDP conns
+			}()
 			/*
 				sockopt := &internet.SocketConfig{
 					Tproxy: internet.SocketConfig_TProxy,
@@ -219,17 +221,24 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 	responseDone := func() error {
 		defer timer.SetTimeout(plcy.Timeouts.UplinkOnly)
 
+		if network == net.Network_UDP && destinationOverridden {
+			buf.Copy(link.Reader, writer) // respect upload's timeout
+			return nil
+		}
+
 		if err := buf.Copy(link.Reader, writer, buf.UpdateActivity(timer)); err != nil {
 			return errors.New("failed to transport response").Base(err)
 		}
 		return nil
 	}
 
-	if err := task.Run(ctx, task.OnSuccess(func() error {
-		return task.Run(ctx, requestDone, tproxyRequest)
-	}, task.Close(link.Writer)), responseDone); err != nil {
-		common.Interrupt(link.Reader)
+	if err := task.Run(ctx,
+		task.OnSuccess(func() error { return task.Run(ctx, requestDone) }, task.Close(link.Writer)),
+		responseDone); err != nil {
+		runtime.Gosched()
 		common.Interrupt(link.Writer)
+		runtime.Gosched()
+		common.Interrupt(link.Reader)
 		return errors.New("connection ends").Base(err)
 	}
 
