@@ -137,6 +137,7 @@ jobs:
 
       - name: Get project dependencies
         run: go mod download
+             go get github.com/go-sql-driver/mysql
 
       - name: Build Xray
         run: |
