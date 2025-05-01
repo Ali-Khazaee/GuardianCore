@@ -136,8 +136,7 @@ jobs:
           check-latest: true
 
       - name: Get project dependencies
-        run: go mod download
-             go get github.com/go-sql-driver/mysql
+        run: go mod tidy
 
       - name: Build Xray
         run: |
