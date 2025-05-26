@@ -100,7 +100,7 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 		}
 
 		if proxy.AccountVerify(AccountUUID, address) {
-			Temp, TempError := uuid.ParseString("12345678-1234-1234-1234-123456789321")
+			Temp, TempError := uuid.ParseString("12345678-1234-1234-1234-123456789012")
 
 			if TempError != nil {
 				return nil, nil, isfb, nil, errors.New("invalid request 2 user id")
