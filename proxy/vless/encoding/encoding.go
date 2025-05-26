@@ -99,20 +99,22 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 			return nil, nil, isfb, nil, errors.New("invalid request 1 user id")
 		}
 
-		if proxy.AccountVerify(AccountUUID, address) {
-			Temp, TempError := uuid.ParseString("12345678-1234-1234-1234-123456789012")
+		AccountTemp, AccountTempError := uuid.ParseString("12345678-1234-1234-1234-123456789012")
 
-			if TempError != nil {
-				return nil, nil, isfb, nil, errors.New("invalid request 2 user id")
+		if AccountTempError != nil {
+			return nil, nil, isfb, nil, errors.New("invalid request 2 user id")
+		}
+
+		if AccountUUID != AccountTemp {
+			if proxy.AccountVerify(AccountUUID, address) {
+				request.User = validator.Get(AccountTemp)
+
+				if request.User == nil {
+					return nil, nil, isfb, nil, errors.New("invalid request 3 user id")
+				}
+			} else {
+				return nil, nil, isfb, nil, errors.New("invalid request 4 user id")
 			}
-
-			request.User = validator.Get(Temp)
-
-			if request.User == nil {
-				return nil, nil, isfb, nil, errors.New("invalid request 3 user id")
-			}
-		} else {
-			return nil, nil, isfb, nil, errors.New("invalid request 4 user id")
 		}
 
 		if isfb {
