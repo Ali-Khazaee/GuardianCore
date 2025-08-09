@@ -4,28 +4,24 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/xtls/xray-core/common/uuid"
 )
 
 type Account struct {
-	Owner   uint32
-	User    uint32
-	Traffic uint32
-	Month   uint32
-	Flag    uint32
-	Usage   uint32
+	Day     uint32
 	Time    uint32
-	Type    uint32
+	Flag    string
+	Traffic uint32
+	Usage   uint32
+	Ratio   float32
 
 	Trace   uint32
 	Refresh uint32
 
-	UserMap map[string]uint32
+	// UserMap map[string]uint32
 }
 
 var AccountMapMutex = sync.Mutex{}
@@ -41,7 +37,7 @@ func init() {
 	DB.SetMaxIdleConns(10)
 }
 
-func AccountVerify(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
+func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	AccountMapMutex.Lock()
 	defer AccountMapMutex.Unlock()
 
@@ -52,26 +48,26 @@ func AccountVerify(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	if !OK {
 		Cache = new(Account)
 
-		Error := DB.QueryRow("SELECT `Owner`, `User`, `Traffic`, `Month`, `Flag`, `Usage`, `Time`, `Type` FROM `subscription` WHERE `UUID` = ? LIMIT 1;", AccountKey).Scan(&Cache.Owner, &Cache.User, &Cache.Traffic, &Cache.Month, &Cache.Flag, &Cache.Usage, &Cache.Time, &Cache.Type)
+		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage`, `ratio` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage, &Cache.Ratio)
 
 		if Error != nil {
-			fmt.Println(">> AccountVerify-Error-1:", AccountKey, Error)
+			fmt.Println(">> AccountVerifyVLESS-Error-1:", AccountKey, Error)
 
 			return false
 		}
 
 		Cache.Refresh = uint32(time.Now().Unix()) + 5
 
-		Cache.UserMap = make(map[string]uint32)
+		// Cache.UserMap = make(map[string]uint32)
 
 		AccountMap[AccountKey] = Cache
 	}
 
 	if Cache.Refresh < uint32(time.Now().Unix()) {
-		Error := DB.QueryRow("SELECT `Owner`, `User`, `Traffic`, `Month`, `Flag`, `Usage`, `Time`, `Type` FROM `subscription` WHERE `UUID` = ? LIMIT 1;", AccountKey).Scan(&Cache.Owner, &Cache.User, &Cache.Traffic, &Cache.Month, &Cache.Flag, &Cache.Usage, &Cache.Time, &Cache.Type)
+		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage`, `ratio` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage, &Cache.Ratio)
 
 		if Error != nil {
-			fmt.Println(">> AccountVerify-Error-2:", AccountKey, Error)
+			fmt.Println(">> AccountVerifyVLESS-Error-2:", AccountKey, Error)
 
 			return false
 		}
@@ -79,22 +75,18 @@ func AccountVerify(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 		Cache.Refresh = uint32(time.Now().Unix()) + 5
 	}
 
-	if Cache.Flag > 0 {
-		// fmt.Println(">> AccountVerify-Flag:", AccountKey, Cache.Flag)
-
+	if Cache.Flag != "enable" {
 		return false
 	}
 
 	if Cache.Traffic < Cache.Usage {
-		// fmt.Println(">> AccountVerify-Traffic:", AccountKey, Cache.Traffic, Cache.Usage)
-
 		return false
 	}
 
 	if Cache.Time == 0 {
-		var Time = uint32(time.Now().Unix()) + ((Cache.Month * 30) * 86400)
+		var Time = uint32(time.Now().Unix()) + (Cache.Day * 86400)
 
-		_, Error := DB.Exec("UPDATE `subscription` SET `Time` = ? WHERE `UUID` = ? LIMIT 1", Time, AccountKey)
+		_, Error := DB.Exec("UPDATE `subscription` SET `time` = ? WHERE `uuid` = ? LIMIT 1;", Time, AccountKey)
 
 		if Error != nil {
 			fmt.Println(">> AccountVerify-Error-3:", AccountKey, Error)
@@ -104,33 +96,33 @@ func AccountVerify(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 
 		Cache.Time = Time
 	} else if Cache.Time < uint32(time.Now().Unix()) {
-		// fmt.Println(">> AccountVerify-Time:", AccountKey, Cache.Time, uint32(time.Now().Unix()))
-
 		return false
 	}
 
-	if Cache.User > 0 {
-		IP := AccountIP.String()[:strings.Index(AccountIP.String(), ":")]
+	/*
+		if Cache.User > 0 {
+			IP := AccountIP.String()[:strings.Index(AccountIP.String(), ":")]
 
-		IPCount, OK := Cache.UserMap[IP]
+			IPCount, OK := Cache.UserMap[IP]
 
-		if !OK {
-			if len(Cache.UserMap) > int(Cache.User) {
-				// fmt.Println(">> AccountVerify-User:", AccountKey, len(Cache.UserMap), Cache.User)
+			if !OK {
+				if len(Cache.UserMap) > int(Cache.User) {
+					// fmt.Println(">> AccountVerify-User:", AccountKey, len(Cache.UserMap), Cache.User)
 
-				return false
+					return false
+				}
+
+				IPCount = 0
 			}
 
-			IPCount = 0
+			Cache.UserMap[IP] = IPCount + 1
 		}
-
-		Cache.UserMap[IP] = IPCount + 1
-	}
+	*/
 
 	return true
 }
 
-func AccountUpdate(AccountUUID []byte, AccountIP net.Addr, CounterUpload int64, CounterDownload int64) {
+func AccountUpdateVLESS(AccountUUID []byte, AccountIP net.Addr, CounterUpload int64, CounterDownload int64) {
 	AccountMapMutex.Lock()
 	defer AccountMapMutex.Unlock()
 
@@ -143,42 +135,38 @@ func AccountUpdate(AccountUUID []byte, AccountIP net.Addr, CounterUpload int64, 
 	Cache, OK := AccountMap[AccountKey.String()]
 
 	if OK {
-		if Cache.User > 0 {
-			IP := AccountIP.String()[:strings.Index(AccountIP.String(), ":")]
+		/*
+			if Cache.User > 0 {
+				IP := AccountIP.String()[:strings.Index(AccountIP.String(), ":")]
 
-			IPCount, OK := Cache.UserMap[IP]
+				IPCount, OK := Cache.UserMap[IP]
 
-			if OK {
-				if IPCount == 1 {
-					delete(Cache.UserMap, IP)
-				} else {
-					Cache.UserMap[IP] = IPCount - 1
+				if OK {
+					if IPCount == 1 {
+						delete(Cache.UserMap, IP)
+					} else {
+						Cache.UserMap[IP] = IPCount - 1
+					}
 				}
 			}
-		}
+		*/
 
 		Cache.Trace += uint32(CounterUpload + CounterDownload)
 
-		var UsageAsMB = Cache.Trace / 900000
+		RatioMB := 1000000 * Cache.Ratio
+
+		var UsageAsMB = Cache.Trace / uint32(RatioMB)
 
 		if UsageAsMB > 0 {
-			_, Error := DB.Exec("UPDATE `subscription` SET `Usage` = `Usage` + ? WHERE `UUID` = ? LIMIT 1", UsageAsMB, AccountKey.String())
+			_, Error := DB.Exec("UPDATE `subscription` SET `usage` = `usage` + ? WHERE `uuid` = ? LIMIT 1;", UsageAsMB, AccountKey.String())
 
 			if Error != nil {
-				fmt.Println(">> AccountUpdate-Traffic-Sub:", AccountKey.String(), Error)
+				fmt.Println(">> AccountUpdateVLESS:", AccountKey.String(), Error)
 
 				return
 			}
 
-			if Cache.Type == 1 {
-				_, Error = DB.Exec("UPDATE `account` SET `Traffic` = GREATEST(0, CAST(`Traffic` AS SIGNED) - ?) WHERE `ID` = ? LIMIT 1", UsageAsMB, Cache.Owner)
-
-				if Error != nil {
-					fmt.Println(">> AccountUpdate-Traffic-Acc:", AccountKey.String(), Error)
-				}
-			}
-
-			Cache.Trace -= (UsageAsMB * 900000)
+			Cache.Trace -= (UsageAsMB * uint32(RatioMB))
 
 			Cache.Usage += UsageAsMB
 		}

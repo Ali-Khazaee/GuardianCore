@@ -597,7 +597,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	}
 
 	if err := task.Run(ctx, task.OnSuccess(postRequest, task.Close(serverWriter)), getResponse); err != nil {
-		proxy.AccountUpdate(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
+		proxy.AccountUpdateVLESS(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
 
 		common.Interrupt(serverReader)
 		common.Interrupt(serverWriter)
@@ -605,7 +605,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		return errors.New("connection ends").Base(err).AtInfo()
 	}
 
-	proxy.AccountUpdate(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
+	proxy.AccountUpdateVLESS(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
 
 	return nil
 }

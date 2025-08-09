@@ -106,7 +106,7 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 		}
 
 		if AccountUUID != AccountTemp {
-			if proxy.AccountVerify(AccountUUID, address) {
+			if proxy.AccountVerifyVLESS(AccountUUID, address) {
 				request.User = validator.Get(AccountTemp)
 
 				if request.User == nil {
