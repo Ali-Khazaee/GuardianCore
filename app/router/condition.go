@@ -83,21 +83,6 @@ func NewMphMatcherGroup(domains []*Domain) (*DomainMatcher, error) {
 	}, nil
 }
 
-func NewDomainMatcher(domains []*Domain) (*DomainMatcher, error) {
-	g := new(strmatcher.MatcherGroup)
-	for _, d := range domains {
-		m, err := domainToMatcher(d)
-		if err != nil {
-			return nil, err
-		}
-		g.Add(m)
-	}
-
-	return &DomainMatcher{
-		matchers: g,
-	}, nil
-}
-
 func (m *DomainMatcher) ApplyDomain(domain string) bool {
 	return len(m.matchers.Match(strings.ToLower(domain))) > 0
 }
@@ -181,6 +166,8 @@ func (v *PortMatcher) Apply(ctx routing.Context) bool {
 		return v.port.Contains(ctx.GetSourcePort())
 	case "target":
 		return v.port.Contains(ctx.GetTargetPort())
+	case "vlessRoute":
+		return v.port.Contains(ctx.GetVlessRoute())
 	default:
 		panic("unreachable, asType should be local or source or target")
 	}

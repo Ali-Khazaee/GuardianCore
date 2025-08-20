@@ -223,8 +223,12 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		Buffer: buf.MultiBuffer{first},
 	}
 
+<<<<<<< HEAD
 	println("Ratio333:", h.Ratio)
 
+=======
+	var userSentID []byte // not MemoryAccount.ID
+>>>>>>> main
 	var request *protocol.RequestHeader
 	var requestAddons *encoding.Addons
 	var AccountUUID []byte
@@ -236,7 +240,11 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	if isfb && firstLen < 18 {
 		err = errors.New("fallback directly")
 	} else {
+<<<<<<< HEAD
 		request, requestAddons, isfb, AccountUUID, err = encoding.DecodeRequestHeader(isfb, first, reader, h.validator, connection.RemoteAddr())
+=======
+		userSentID, request, requestAddons, isfb, err = encoding.DecodeRequestHeader(isfb, first, reader, h.validator)
+>>>>>>> main
 	}
 
 	if err != nil {
@@ -464,6 +472,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	}
 	inbound.Name = "vless"
 	inbound.User = request.User
+	inbound.VlessRoute = net.PortFromBytes(userSentID[6:8])
 
 	account := request.User.Account.(*vless.MemoryAccount)
 
@@ -539,7 +548,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 
 	serverReader := link.Reader // .(*pipe.Reader)
 	serverWriter := link.Writer // .(*pipe.Writer)
-	trafficState := proxy.NewTrafficState(account.ID.Bytes())
+	trafficState := proxy.NewTrafficState(userSentID)
 	postRequest := func() error {
 		defer timer.SetTimeout(sessionPolicy.Timeouts.DownlinkOnly)
 
