@@ -2,6 +2,11 @@
 
 echo "Building Begin: $(date '+%H:%M:%S')"
 
-CGO_ENABLED=0 go build -o xray -trimpath -ldflags "-s -w -buildid=" ./main
+# Linux
+CGO_ENABLED=0 go build -o xray -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -v ./main
+
+# Windows
+#$env:CGO_ENABLED=0
+#go build -o xray.exe -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -v ./main
 
 echo "Building End: $(date '+%H:%M:%S')"

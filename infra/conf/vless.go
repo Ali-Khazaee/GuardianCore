@@ -32,12 +32,16 @@ type VLessInboundConfig struct {
 	Clients    []json.RawMessage       `json:"clients"`
 	Decryption string                  `json:"decryption"`
 	Fallbacks  []*VLessInboundFallback `json:"fallbacks"`
+	Ratio      string                  `json:"ratio"`
 }
 
 // Build implements Buildable
 func (c *VLessInboundConfig) Build() (proto.Message, error) {
 	config := new(inbound.Config)
 	config.Clients = make([]*protocol.User, len(c.Clients))
+
+	config.Ratio = c.Ratio
+
 	for idx, rawUser := range c.Clients {
 		user := new(protocol.User)
 		if err := json.Unmarshal(rawUser, user); err != nil {

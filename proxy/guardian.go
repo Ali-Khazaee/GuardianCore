@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/xtls/xray-core/common/uuid"
 )
 
@@ -16,7 +18,6 @@ type Account struct {
 	Flag    string
 	Traffic uint32
 	Usage   uint32
-	Ratio   float32
 
 	Trace   uint32
 	Refresh uint32
@@ -48,7 +49,7 @@ func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	if !OK {
 		Cache = new(Account)
 
-		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage`, `ratio` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage, &Cache.Ratio)
+		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage)
 
 		if Error != nil {
 			fmt.Println(">> AccountVerifyVLESS-Error-1:", AccountKey, Error)
@@ -64,7 +65,7 @@ func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	}
 
 	if Cache.Refresh < uint32(time.Now().Unix()) {
-		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage`, `ratio` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage, &Cache.Ratio)
+		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage)
 
 		if Error != nil {
 			fmt.Println(">> AccountVerifyVLESS-Error-2:", AccountKey, Error)
@@ -122,7 +123,7 @@ func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	return true
 }
 
-func AccountUpdateVLESS(AccountUUID []byte, AccountIP net.Addr, CounterUpload int64, CounterDownload int64) {
+func AccountUpdateVLESS(AccountUUID []byte, AccountIP net.Addr, CounterUpload int64, CounterDownload int64, Ratio string) {
 	AccountMapMutex.Lock()
 	defer AccountMapMutex.Unlock()
 
@@ -153,7 +154,13 @@ func AccountUpdateVLESS(AccountUUID []byte, AccountIP net.Addr, CounterUpload in
 
 		Cache.Trace += uint32(CounterUpload + CounterDownload)
 
-		RatioMB := 1000000 * Cache.Ratio
+		RatioAsFloat, err := strconv.ParseFloat(Ratio, 32)
+
+		if err != nil {
+			RatioAsFloat = 1
+		}
+
+		RatioMB := 1000000 * RatioAsFloat
 
 		var UsageAsMB = Cache.Trace / uint32(RatioMB)
 

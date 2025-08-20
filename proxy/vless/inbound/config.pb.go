@@ -116,6 +116,7 @@ type Config struct {
 	// for now.
 	Decryption string      `protobuf:"bytes,2,opt,name=decryption,proto3" json:"decryption,omitempty"`
 	Fallbacks  []*Fallback `protobuf:"bytes,3,rep,name=fallbacks,proto3" json:"fallbacks,omitempty"`
+	Ratio string           `protobuf:"bytes,4,opt,name=ratio,proto3" json:"ratio,omitempty"`
 }
 
 func (x *Config) Reset() {
@@ -167,6 +168,13 @@ func (x *Config) GetFallbacks() []*Fallback {
 		return x.Fallbacks
 	}
 	return nil
+}
+
+func (x *Config) GetRatio() string {
+	if x != nil {
+		return x.Ratio
+	}
+	return ""
 }
 
 var File_proxy_vless_inbound_config_proto protoreflect.FileDescriptor

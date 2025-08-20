@@ -57,7 +57,9 @@ func init() {
 			}
 		}
 
-		return New(ctx, c, dc, validator)
+		println("zzzzzzzzzzzzzzzzzzzzzzzzz:", c.Ratio)
+
+		return New(ctx, c, dc, validator, c.Ratio)
 	}))
 }
 
@@ -69,17 +71,21 @@ type Handler struct {
 	dns                   dns.Client
 	fallbacks             map[string]map[string]map[string]*Fallback // or nil
 	// regexps               map[string]*regexp.Regexp       // or nil
+	Ratio string
 }
 
 // New creates a new VLess inbound handler.
-func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Validator) (*Handler, error) {
+func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Validator, Ratio string) (*Handler, error) {
 	v := core.MustFromContext(ctx)
 	handler := &Handler{
 		inboundHandlerManager: v.GetFeature(feature_inbound.ManagerType()).(feature_inbound.Manager),
 		policyManager:         v.GetFeature(policy.ManagerType()).(policy.Manager),
 		dns:                   dc,
 		validator:             validator,
+		Ratio:                 Ratio,
 	}
+
+	println("aaaaaaaaaaaaaaaaa:", Ratio)
 
 	if config.Fallbacks != nil {
 		handler.fallbacks = make(map[string]map[string]map[string]*Fallback)
@@ -216,6 +222,8 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		Reader: buf.NewReader(connection),
 		Buffer: buf.MultiBuffer{first},
 	}
+
+	println("Ratio333:", h.Ratio)
 
 	var request *protocol.RequestHeader
 	var requestAddons *encoding.Addons
@@ -597,7 +605,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	}
 
 	if err := task.Run(ctx, task.OnSuccess(postRequest, task.Close(serverWriter)), getResponse); err != nil {
-		proxy.AccountUpdateVLESS(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
+		proxy.AccountUpdateVLESS(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value(), h.Ratio)
 
 		common.Interrupt(serverReader)
 		common.Interrupt(serverWriter)
@@ -605,7 +613,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		return errors.New("connection ends").Base(err).AtInfo()
 	}
 
-	proxy.AccountUpdateVLESS(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value())
+	proxy.AccountUpdateVLESS(AccountUUID, connection.RemoteAddr(), connection.(*stat.CounterConnection).ReadCounter.Value(), connection.(*stat.CounterConnection).WriteCounter.Value(), h.Ratio)
 
 	return nil
 }
