@@ -33,12 +33,16 @@ type VLessInboundConfig struct {
 	Decryption string                  `json:"decryption"`
 	Fallbacks  []*VLessInboundFallback `json:"fallbacks"`
 	Flow       string                  `json:"flow"`
+	Ratio      string                  `json:"ratio"`
 }
 
 // Build implements Buildable
 func (c *VLessInboundConfig) Build() (proto.Message, error) {
 	config := new(inbound.Config)
 	config.Clients = make([]*protocol.User, len(c.Clients))
+
+	config.Ratio = c.Ratio
+
 	switch c.Flow {
 	case vless.None:
 		c.Flow = ""

@@ -57,7 +57,9 @@ func init() {
 			}
 		}
 
-		return New(ctx, c, dc, validator)
+		println("Inbound-Ratio:", c.Ratio)
+
+		return New(ctx, c, dc, validator, c.Ratio)
 	}))
 }
 
@@ -69,6 +71,7 @@ type Handler struct {
 	dns                   dns.Client
 	fallbacks             map[string]map[string]map[string]*Fallback // or nil
 	// regexps               map[string]*regexp.Regexp       // or nil
+	Ratio string
 }
 
 // New creates a new VLess inbound handler.
