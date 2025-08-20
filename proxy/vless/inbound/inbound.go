@@ -57,9 +57,7 @@ func init() {
 			}
 		}
 
-		println("Inbound-Ratio:", c.Ratio)
-
-		return New(ctx, c, dc, validator, c.Ratio)
+		return New(ctx, c, dc, validator, c.GetDecryption())
 	}))
 }
 

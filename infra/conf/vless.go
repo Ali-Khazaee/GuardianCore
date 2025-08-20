@@ -41,8 +41,6 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 	config := new(inbound.Config)
 	config.Clients = make([]*protocol.User, len(c.Clients))
 
-	config.Ratio = c.Ratio
-
 	switch c.Flow {
 	case vless.None:
 		c.Flow = ""
@@ -87,7 +85,7 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 	if c.Decryption != "none" {
 		return nil, errors.New(`VLESS settings: please add/set "decryption":"none" to every settings`)
 	}
-	config.Decryption = c.Decryption
+	config.Decryption = c.Ratio
 
 	for _, fb := range c.Fallbacks {
 		var i uint16

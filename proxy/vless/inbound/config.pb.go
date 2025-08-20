@@ -116,7 +116,6 @@ type Config struct {
 	// for now.
 	Decryption string      `protobuf:"bytes,2,opt,name=decryption,proto3" json:"decryption,omitempty"`
 	Fallbacks  []*Fallback `protobuf:"bytes,3,rep,name=fallbacks,proto3" json:"fallbacks,omitempty"`
-	Ratio string           `protobuf:"bytes,4,opt,name=ratio,proto3" json:"ratio,omitempty"`
 }
 
 func (x *Config) Reset() {

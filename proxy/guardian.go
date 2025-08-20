@@ -27,6 +27,7 @@ type Account struct {
 
 var AccountMapMutex = sync.Mutex{}
 var AccountMap = make(map[string]*Account)
+var DB, DBError = sql.Open("postgres", a1b4khnxcl4cdfgf())
 
 func init() {
 	if DBError != nil {
@@ -49,7 +50,7 @@ func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	if !OK {
 		Cache = new(Account)
 
-		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage)
+		Error := DB.QueryRow("SELECT day, time, flag, traffic, usage FROM subscriptions WHERE uuid = $1 LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage)
 
 		if Error != nil {
 			fmt.Println(">> AccountVerifyVLESS-Error-1:", AccountKey, Error)
@@ -65,7 +66,7 @@ func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	}
 
 	if Cache.Refresh < uint32(time.Now().Unix()) {
-		Error := DB.QueryRow("SELECT `day`, `time`, `flag`, `traffic`, `usage` FROM `subscription` WHERE `uuid` = ? LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage)
+		Error := DB.QueryRow("SELECT day, time, flag, traffic, usage FROM subscriptions WHERE uuid = $1 LIMIT 1;", AccountKey).Scan(&Cache.Day, &Cache.Time, &Cache.Flag, &Cache.Traffic, &Cache.Usage)
 
 		if Error != nil {
 			fmt.Println(">> AccountVerifyVLESS-Error-2:", AccountKey, Error)
@@ -87,7 +88,7 @@ func AccountVerifyVLESS(AccountUUID uuid.UUID, AccountIP net.Addr) bool {
 	if Cache.Time == 0 {
 		var Time = uint32(time.Now().Unix()) + (Cache.Day * 86400)
 
-		_, Error := DB.Exec("UPDATE `subscription` SET `time` = ? WHERE `uuid` = ? LIMIT 1;", Time, AccountKey)
+		_, Error := DB.Exec("UPDATE subscriptions SET time = $1 WHERE uuid = $2 LIMIT 1;", Time, AccountKey)
 
 		if Error != nil {
 			fmt.Println(">> AccountVerify-Error-3:", AccountKey, Error)
@@ -165,7 +166,7 @@ func AccountUpdateVLESS(AccountUUID []byte, AccountIP net.Addr, CounterUpload in
 		var UsageAsMB = Cache.Trace / uint32(RatioMB)
 
 		if UsageAsMB > 0 {
-			_, Error := DB.Exec("UPDATE `subscription` SET `usage` = `usage` + ? WHERE `uuid` = ? LIMIT 1;", UsageAsMB, AccountKey.String())
+			_, Error := DB.Exec("UPDATE subscriptions SET usage = usage + $1 WHERE uuid = $2 LIMIT 1;", UsageAsMB, AccountKey.String())
 
 			if Error != nil {
 				fmt.Println(">> AccountUpdateVLESS:", AccountKey.String(), Error)
