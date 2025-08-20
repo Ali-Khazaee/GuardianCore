@@ -11,6 +11,7 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/vless"
@@ -62,7 +63,7 @@ func EncodeRequestHeader(writer io.Writer, request *protocol.RequestHeader, requ
 }
 
 // DecodeRequestHeader decodes and returns (if successful) a RequestHeader from an input stream.
-func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validator vless.Validator) ([]byte, *protocol.RequestHeader, *Addons, bool, error) {
+func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validator vless.Validator, address net.Addr) ([]byte, *protocol.RequestHeader, *Addons, bool, []byte, error) {
 	buffer := buf.StackNew()
 	defer buffer.Release()
 
@@ -72,7 +73,7 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 		request.Version = first.Byte(0)
 	} else {
 		if _, err := buffer.ReadFullFrom(reader, 1); err != nil {
-			return nil, nil, nil, false, errors.New("failed to read request version").Base(err)
+			return nil, nil, nil, false, nil, errors.New("failed to read request version").Base(err)
 		}
 		request.Version = buffer.Byte(0)
 	}
@@ -87,13 +88,33 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 		} else {
 			buffer.Clear()
 			if _, err := buffer.ReadFullFrom(reader, 16); err != nil {
-				return nil, nil, nil, false, errors.New("failed to read request user id").Base(err)
+				return nil, nil, nil, false, nil, errors.New("failed to read request user id").Base(err)
 			}
 			copy(id[:], buffer.Bytes())
 		}
 
-		if request.User = validator.Get(id); request.User == nil {
-			return nil, nil, nil, isfb, errors.New("invalid request user id")
+		AccountUUID, AccountError := uuid.ParseBytes(id[:])
+
+		if AccountError != nil {
+			return nil, nil, nil, false, nil, errors.New("invalid request 1 user id")
+		}
+
+		AccountTemp, AccountTempError := uuid.ParseString("12345678-1234-1234-1234-123456789012")
+
+		if AccountTempError != nil {
+			return nil, nil, nil, false, nil, errors.New("invalid request 2 user id")
+		}
+
+		if AccountUUID != AccountTemp {
+			if proxy.AccountVerifyVLESS(AccountUUID, address) {
+				request.User = validator.Get(AccountTemp)
+
+				if request.User == nil {
+					return nil, nil, nil, false, nil, errors.New("invalid request 3 user id")
+				}
+			} else {
+				return nil, nil, nil, false, nil, errors.New("invalid request 4 user id")
+			}
 		}
 
 		if isfb {
@@ -102,12 +123,12 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 
 		requestAddons, err := DecodeHeaderAddons(&buffer, reader)
 		if err != nil {
-			return nil, nil, nil, false, errors.New("failed to decode request header addons").Base(err)
+			return nil, nil, nil, false, nil, errors.New("failed to decode request header addons").Base(err)
 		}
 
 		buffer.Clear()
 		if _, err := buffer.ReadFullFrom(reader, 1); err != nil {
-			return nil, nil, nil, false, errors.New("failed to read request command").Base(err)
+			return nil, nil, nil, false, nil, errors.New("failed to read request command").Base(err)
 		}
 
 		request.Command = protocol.RequestCommand(buffer.Byte(0))
@@ -122,11 +143,11 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 			}
 		}
 		if request.Address == nil {
-			return nil, nil, nil, false, errors.New("invalid request address")
+			return nil, nil, nil, false, nil, errors.New("invalid request address")
 		}
-		return id[:], request, requestAddons, false, nil
+		return id[:], request, requestAddons, false, AccountUUID.Bytes(), nil
 	default:
-		return nil, nil, nil, isfb, errors.New("invalid request version")
+		return nil, nil, nil, isfb, nil, errors.New("invalid request version")
 	}
 }
 
